@@ -57,10 +57,15 @@ try {
 
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001; // Changed to 5001 to avoid conflicts
 
 // Middleware
-app.use(cors());
+// Configure CORS with specific options
+app.use(cors({
+  origin: ['https://clinic-frontend-seven-lyart.vercel.app', 'http://localhost:5173'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
+}));
 app.use(express.json());
 
 // Basic root route

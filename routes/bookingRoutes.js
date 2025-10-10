@@ -2,11 +2,52 @@
 
 const express = require('express');
 const router = express.Router();
-const bookingController = require('../controllers/bookingController');
+const bookingController = require('../controllers/bookingCOntroller');
 
 // This route gets the doctor's info and is correctly called by your frontend.
 // URL: GET /api/bookings/doctor
-router.get('/doctor', bookingController.getDoctorDetails); // Using getDoctorDetails for consistency
+// Route to get doctor details for about section
+router.get('/details', bookingController.getDoctorDetails);
+
+// DEBUG route to check database state
+router.get('/debug/state', async (req, res) => {
+  try {
+    const db = require('firebase-admin').firestore();
+    const state = {
+      doctors: [],
+      availability: [],
+      appointments: []
+    };
+
+    // Get all doctors
+    const doctorsSnap = await db.collection('doctors').get();
+    state.doctors = doctorsSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    // Get all availability
+    const availabilitySnap = await db.collection('availability').get();
+    state.availability = availabilitySnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    // Get all appointments
+    const appointmentsSnap = await db.collection('appointments').get();
+    state.appointments = appointmentsSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    res.json(state);
+  } catch (error) {
+    console.error('Debug state error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router; // Using getDoctorDetails for consistency
 
 // This gets the available time slots for a date.
 // URL: GET /api/bookings/slots?date=...

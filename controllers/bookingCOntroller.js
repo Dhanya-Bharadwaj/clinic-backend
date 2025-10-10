@@ -12,11 +12,18 @@ const availabilityCollection = db.collection('availability');
 // Helper function to normalize date to 'YYYY-MM-DD' string for Firestore
 const normalizeDate = (dateString) => {
   try {
-    const date = parseISO(dateString); // date-fns can parse ISO strings directly
-    if (!isValid(date)) {
-      throw new Error('Invalid date string');
-    }
-    return format(date, 'yyyy-MM-dd');
+        let date;
+        // Check if it's already in YYYY-MM-DD format (or similar simple format)
+        // If not, try to parse it as a full ISO string
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+          date = new Date(dateString + 'T00:00:00Z'); // Treat as UTC start of day for consistency
+        } else {
+          date = parseISO(dateString);
+        }
+        if (!isValid(date)) {
+          throw new Error('Invalid date string');
+        }
+        return format(date, 'yyyy-MM-dd');
   } catch (error) {
     console.error("Error normalizing date:", error.message, dateString);
     throw new Error('Invalid date format for normalization');
@@ -92,10 +99,25 @@ exports.getDoctorInfo = async (req, res) => {
 // --- Get Available Slots for a Date ---
 exports.getAvailableSlots = async (req, res) => {
   try {
+    console.log('=== Starting getAvailableSlots ===');
+    console.log('1. Request query:', req.query);
     const { date } = req.query;
 
     if (!date) {
+      console.log('ERROR: No date provided in request');
       return res.status(400).json({ message: 'Date is required.' });
+    }
+
+    console.log('2. Validating date:', date);
+    // Check if date is in the past
+    const requestDate = new Date(date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    console.log('Request date:', requestDate.toISOString());
+    console.log('Today:', today.toISOString());
+    
+    if (requestDate < today) {
+      return res.status(400).json({ message: 'Cannot book appointments for past dates.' });
     }
 
     const normalizedDate = normalizeDate(date); // Convert to YYYY-MM-DD
@@ -111,11 +133,19 @@ exports.getAvailableSlots = async (req, res) => {
       .limit(1)
       .get();
 
+    console.log('Availability query result:', {
+      empty: availabilitySnapshot.empty,
+      doctorId: doctorId,
+      hasSlots: availabilitySnapshot.empty ? false : availabilitySnapshot.docs[0].data().daySlots.length > 0
+    });
+
     if (availabilitySnapshot.empty || availabilitySnapshot.docs[0].data().daySlots.length === 0) {
+      console.log('No availability found for doctor');
       return res.status(200).json({ availableSlots: [] });
     }
 
     const allDailySlots = availabilitySnapshot.docs[0].data().daySlots;
+    console.log('All daily slots:', allDailySlots);
 
     const bookedAppointmentsSnapshot = await appointmentsCollection
       .where('doctorId', '==', doctorId)
