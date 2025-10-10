@@ -1,24 +1,27 @@
 // doctor-madhusudhan-backend/routes/bookingRoutes.js
+
 const express = require('express');
 const router = express.Router();
 const bookingController = require('../controllers/bookingController');
 
-// Route to seed initial doctor and availability data (run once for setup)
-router.post('/seed', bookingController.seedDoctorAndAvailability);
+// This route gets the doctor's info and is correctly called by your frontend.
+// URL: GET /api/bookings/doctor
+router.get('/doctor', bookingController.getDoctorDetails); // Using getDoctorDetails for consistency
 
-// Route to get general doctor information
-router.get('/doctor', bookingController.getDoctorInfo);
+// This gets the available time slots for a date.
+// URL: GET /api/bookings/slots?date=...
+router.get('/slots', bookingController.getAvailableSlots);
 
-// Route to get available slots for a specific date
-router.get('/slots', bookingController.getAvailableSlots); // Expects query param ?date=YYYY-MM-DD
-
-// Route to book an appointment
+// This creates a new appointment.
+// URL: POST /api/bookings
 router.post('/', bookingController.bookAppointment);
 
-// Route to mark an appointment as complete (for demo purpose)
+// This marks an appointment as complete.
+// URL: PATCH /api/bookings/:appointmentId/complete
 router.patch('/:appointmentId/complete', bookingController.markAppointmentComplete);
 
-// Route to get doctor details for about section
-router.get('/details', bookingController.getDoctorDetails);
+// You can keep this route for initial setup if you need it.
+router.post('/seed', bookingController.seedDoctorAndAvailability);
+
 
 module.exports = router;
