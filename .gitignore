@@ -64,6 +64,10 @@ node_modules/
 
 # dotenv environment variables file
 .env
-*.json
+
 # dataconnect generated files
 .dataconnect
+
+# Firebase Admin SDK Key (CRITICAL: Ignore ONLY this specific file)
+# Replace 'your-firebase-adminsdk-xxxxx-xxxxx.json' with the EXACT filename you downloaded
+dr-clinic-30dbf-firebase-adminsdk-fbsvc-01291a93d1.json
