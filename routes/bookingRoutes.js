@@ -9,10 +9,8 @@ const paymentsController = require('../controllers/paymentsController');
 // Doctor Dashboard routes
 router.get('/doctor/appointments', doctorDashboard.getDoctorAppointments);
 
-// This route gets the doctor's info and is correctly called by your frontend.
-// URL: GET /api/bookings/doctor
-// Route to get doctor details for about section
-router.get('/details', bookingController.getDoctorDetails);
+// Get doctor details (frontend expects /api/bookings/doctor)
+router.get('/doctor', bookingController.getDoctorDetails);
 
 // DEBUG route to check database state
 router.get('/debug/state', async (req, res) => {
@@ -63,7 +61,7 @@ router.get('/debug/state', async (req, res) => {
   }
 });
 
-module.exports = router; // Using getDoctorDetails for consistency
+// (module export moved to bottom)
 
 // This gets the available time slots for a date.
 // URL: GET /api/bookings/slots?date=...
@@ -79,10 +77,5 @@ router.patch('/:appointmentId/complete', bookingController.markAppointmentComple
 
 // You can keep this route for initial setup if you need it.
 router.post('/seed', bookingController.seedDoctorAndAvailability);
-
-// Payment routes (Razorpay)
-router.post('/../payments/create-order', paymentsController.createOrder);
-router.post('/../payments/verify', paymentsController.verifyPayment);
-
 
 module.exports = router;
