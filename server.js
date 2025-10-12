@@ -64,9 +64,18 @@ const PORT = process.env.PORT || 5001; // Changed to 5001 to avoid conflicts
 app.use(cors({
   origin: ['https://clinic-frontend-seven-lyart.vercel.app', 'http://localhost:5173'],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
+  allowedHeaders: ['Content-Type', 'Accept'],
+  credentials: true
 }));
+
+// Parse JSON bodies
 app.use(express.json());
+
+// Add request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
 
 // Basic root route
 app.get('/', (req, res) => {
@@ -79,7 +88,9 @@ app.get('/', (req, res) => {
 
 // Import and use routes
 const bookingRoutes = require('./routes/bookingRoutes');
+const paymentsRoutes = require('./routes/paymentsRoutes');
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

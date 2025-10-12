@@ -3,6 +3,11 @@
 const express = require('express');
 const router = express.Router();
 const bookingController = require('../controllers/bookingCOntroller');
+const doctorDashboard = require('../controllers/doctorDashboard');
+const paymentsController = require('../controllers/paymentsController');
+
+// Doctor Dashboard routes
+router.get('/doctor/appointments', doctorDashboard.getDoctorAppointments);
 
 // This route gets the doctor's info and is correctly called by your frontend.
 // URL: GET /api/bookings/doctor
@@ -13,7 +18,18 @@ router.get('/details', bookingController.getDoctorDetails);
 router.get('/debug/state', async (req, res) => {
   try {
     const db = require('firebase-admin').firestore();
+    console.log('Checking database state...');
+    
+    // Get all appointments
+    const appointmentsSnapshot = await db.collection('appointments').get();
+    const appointments = appointmentsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
     const state = {
+      appointmentsCount: appointments.length,
+      appointments: appointments,
       doctors: [],
       availability: [],
       appointments: []
@@ -63,6 +79,10 @@ router.patch('/:appointmentId/complete', bookingController.markAppointmentComple
 
 // You can keep this route for initial setup if you need it.
 router.post('/seed', bookingController.seedDoctorAndAvailability);
+
+// Payment routes (Razorpay)
+router.post('/../payments/create-order', paymentsController.createOrder);
+router.post('/../payments/verify', paymentsController.verifyPayment);
 
 
 module.exports = router;
