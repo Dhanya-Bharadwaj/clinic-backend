@@ -173,10 +173,10 @@ exports.getAvailableSlots = async (req, res) => {
 // --- Book an Appointment ---
 exports.bookAppointment = async (req, res) => {
   try {
-    const { date, time, patientName, patientEmail, patientPhone } = req.body;
+    const { date, time, patientName, patientPhone, age, gender, consultType } = req.body;
 
-    if (!date || !time || !patientName || !patientEmail || !patientPhone) {
-      return res.status(400).json({ message: 'All fields are required.' });
+    if (!date || !time || !patientName || !patientPhone || !age || !gender || !consultType) {
+      return res.status(400).json({ message: 'All fields are required: date, time, patientName, patientPhone, age, gender, consultType.' });
     }
 
     const doctorSnapshot = await doctorsCollection.limit(1).get();
@@ -217,8 +217,10 @@ exports.bookAppointment = async (req, res) => {
       transaction.set(newAppointmentRef, {
         doctorId,
         patientName,
-        patientEmail,
         patientPhone,
+        age: parseInt(age),
+        gender,
+        consultType,
         date: normalizedDate,
         time,
         status: 'booked',
@@ -234,8 +236,10 @@ exports.bookAppointment = async (req, res) => {
           date: normalizedDate,
           time,
           patientName,
-          patientEmail,
           patientPhone,
+          age: parseInt(age),
+          gender,
+          consultType,
           bookingId: appointmentId
       },
     });
