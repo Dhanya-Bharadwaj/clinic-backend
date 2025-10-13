@@ -54,8 +54,11 @@ exports.getDoctorAppointments = async (req, res) => {
                 _id: doc.id,
                 bookingId: doc.id,
                 patientName: data.patientName || 'No Name',
-                patientEmail: data.patientEmail || 'No Email',
+                patientEmail: data.patientEmail || null, // Keep for backward compatibility
                 patientPhone: data.patientPhone || 'No Phone',
+                age: data.age || null,
+                gender: data.gender || null,
+                consultType: data.consultType || null,
                 date: data.date,
                 time: data.time,
                 status: data.status || 'booked',

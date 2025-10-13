@@ -60,12 +60,13 @@ const app = express();
 const PORT = process.env.PORT || 5001; // Changed to 5001 to avoid conflicts
 
 // Middleware
-// Configure CORS with specific options
+// Configure CORS with more permissive options for development
 app.use(cors({
-  origin: ['https://clinic-frontend-seven-lyart.vercel.app', 'http://localhost:5173'],
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Accept'],
-  credentials: true
+  origin: true, // Allow all origins during development
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS', 'PUT'],
+  allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'Cache-Control', 'Pragma'],
+  credentials: true,
+  optionsSuccessStatus: 200
 }));
 
 // Parse JSON bodies
@@ -73,8 +74,14 @@ app.use(express.json());
 
 // Add request logging middleware
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
   next();
+});
+
+// Handle preflight requests
+app.options('*', (req, res) => {
+  console.log('Preflight request received');
+  res.status(200).end();
 });
 
 // Basic root route
