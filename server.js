@@ -89,8 +89,10 @@ app.get('/', (req, res) => {
 // Import and use routes
 const bookingRoutes = require('./routes/bookingRoutes');
 const paymentsRoutes = require('./routes/paymentsRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentsRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
