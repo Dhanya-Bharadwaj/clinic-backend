@@ -29,7 +29,7 @@ const getRazorpayInstance = () => {
   const key_id = process.env.RAZORPAY_KEY_ID;
   const key_secret = process.env.RAZORPAY_KEY_SECRET;
   if (!key_id || !key_secret) {
-    throw new Error('Missing Razorpay credentials. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
+    throw new Error('Missing Razorpay credentials. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env file.');
   }
   return new Razorpay({ key_id, key_secret });
 };
@@ -71,9 +71,9 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: 'This time slot is not offered by the doctor.' });
     }
 
-    // Note: We do NOT lock the slot yet; we will do a transaction during verification to ensure availability.
+    // Create Razorpay order
     const rzp = getRazorpayInstance();
-    const amount = Math.max(1, parseInt((amountInINR ?? process.env.CONSULTATION_FEE_INR ?? '499'), 10)) * 100; // paise
+    const amount = Math.max(1, parseInt((amountInINR ?? process.env.CONSULTATION_FEE_INR ?? '1'), 10)) * 100; // paise
 
     const options = {
       amount,
@@ -150,6 +150,7 @@ exports.verifyPayment = async (req, res) => {
         patientPhone,
         age: parseInt(age, 10),
         gender,
+        consultType: 'online',
         date,
         time,
         status: 'booked_online',
