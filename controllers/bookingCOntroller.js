@@ -164,12 +164,17 @@ exports.getAvailableSlots = async (req, res) => {
     // Filter out past time slots if the selected date is today
     const isToday = requestDate.toDateString() === new Date().toDateString();
     if (isToday) {
+      // Get current time in IST (India Standard Time = UTC+5:30)
       const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
+      const istOffset = 5.5 * 60; // IST is UTC+5:30 in minutes
+      const utcTime = now.getTime();
+      const istTime = new Date(utcTime + (istOffset * 60 * 1000));
+      
+      const currentHour = istTime.getUTCHours();
+      const currentMinute = istTime.getUTCMinutes();
       const currentTimeInMinutes = currentHour * 60 + currentMinute;
       
-      console.log(`Today's date selected. Current time: ${currentHour}:${currentMinute}`);
+      console.log(`Today's date selected. Current IST time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
       
       available = available.filter(slot => {
         // Parse slot time (format: "HH:MM" in 24-hour format)
@@ -180,13 +185,13 @@ exports.getAvailableSlots = async (req, res) => {
         const isAvailable = slotTimeInMinutes > currentTimeInMinutes + 15;
         
         if (!isAvailable) {
-          console.log(`Filtering out past slot: ${slot}`);
+          console.log(`Filtering out past slot: ${slot} (${slotTimeInMinutes} minutes vs current ${currentTimeInMinutes} minutes)`);
         }
         
         return isAvailable;
       });
       
-      console.log(`Filtered slots for today (after ${currentHour}:${currentMinute}):`, available);
+      console.log(`Filtered slots for today (after ${currentHour}:${currentMinute.toString().padStart(2, '0')} IST):`, available);
     }
 
     return res.status(200).json({ availableSlots: available });
