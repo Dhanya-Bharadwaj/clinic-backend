@@ -159,7 +159,35 @@ exports.getAvailableSlots = async (req, res) => {
 
     const bookedTimes = new Set(bookedAppointmentsSnapshot.docs.map(app => app.data().time));
 
-    const available = allDailySlots.filter(slot => !bookedTimes.has(slot));
+    let available = allDailySlots.filter(slot => !bookedTimes.has(slot));
+
+    // Filter out past time slots if the selected date is today
+    const isToday = requestDate.toDateString() === new Date().toDateString();
+    if (isToday) {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const currentTimeInMinutes = currentHour * 60 + currentMinute;
+      
+      console.log(`Today's date selected. Current time: ${currentHour}:${currentMinute}`);
+      
+      available = available.filter(slot => {
+        // Parse slot time (format: "HH:MM" in 24-hour format)
+        const [slotHour, slotMinute] = slot.split(':').map(Number);
+        const slotTimeInMinutes = slotHour * 60 + slotMinute;
+        
+        // Only show slots that are at least 15 minutes in the future
+        const isAvailable = slotTimeInMinutes > currentTimeInMinutes + 15;
+        
+        if (!isAvailable) {
+          console.log(`Filtering out past slot: ${slot}`);
+        }
+        
+        return isAvailable;
+      });
+      
+      console.log(`Filtered slots for today (after ${currentHour}:${currentMinute}):`, available);
+    }
 
     return res.status(200).json({ availableSlots: available });
 
