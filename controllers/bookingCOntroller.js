@@ -105,7 +105,7 @@ exports.getAvailableSlots = async (req, res) => {
   try {
     console.log('=== Starting getAvailableSlots ===');
     console.log('1. Request query:', req.query);
-    const { date } = req.query;
+    const { date, consultType } = req.query;
 
     if (!date) {
       console.log('ERROR: No date provided in request');
@@ -132,23 +132,52 @@ exports.getAvailableSlots = async (req, res) => {
     }
     const doctorId = doctorSnapshot.docs[0].id;
 
-    const availabilitySnapshot = await availabilityCollection
-      .where('doctorId', '==', doctorId)
-      .limit(1)
-      .get();
+    let allDailySlots = [];
 
-    console.log('Availability query result:', {
-      empty: availabilitySnapshot.empty,
-      doctorId: doctorId,
-      hasSlots: availabilitySnapshot.empty ? false : availabilitySnapshot.docs[0].data().daySlots.length > 0
-    });
+    // Generate slots based on consultation type
+    if (consultType === 'online') {
+      // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+      const dayOfWeek = requestDate.getDay();
+      
+      console.log('Online consultation requested for day:', dayOfWeek);
+      
+      if (dayOfWeek === 0 || dayOfWeek === 1) {
+        // Sunday (0) or Monday (1): 10:00 AM - 1:00 PM with 15-min slots and 10-min breaks
+        // Total cycle: 25 minutes (15 min slot + 10 min break)
+        // 10:00-10:15, break, 10:25-10:40, break, 10:50-11:05, break, 11:15-11:30, break, 11:40-11:55, break, 12:05-12:20, break, 12:30-12:45
+        allDailySlots = [
+          '10:00', '10:25', '10:50', '11:15', '11:40', '12:05', '12:30'
+        ];
+        console.log('Sunday/Monday online slots generated:', allDailySlots);
+      } else if (dayOfWeek >= 2 && dayOfWeek <= 6) {
+        // Tuesday (2) to Saturday (6): Only 2 evening slots
+        allDailySlots = ['20:30', '21:00'];
+        console.log('Tuesday-Saturday online slots generated:', allDailySlots);
+      } else {
+        console.log('No online slots for this day');
+        return res.status(200).json({ availableSlots: [] });
+      }
+    } else {
+      // For offline consultations, use the regular availability from database
+      const availabilitySnapshot = await availabilityCollection
+        .where('doctorId', '==', doctorId)
+        .limit(1)
+        .get();
 
-    if (availabilitySnapshot.empty || availabilitySnapshot.docs[0].data().daySlots.length === 0) {
-      console.log('No availability found for doctor');
-      return res.status(200).json({ availableSlots: [] });
+      console.log('Availability query result:', {
+        empty: availabilitySnapshot.empty,
+        doctorId: doctorId,
+        hasSlots: availabilitySnapshot.empty ? false : availabilitySnapshot.docs[0].data().daySlots.length > 0
+      });
+
+      if (availabilitySnapshot.empty || availabilitySnapshot.docs[0].data().daySlots.length === 0) {
+        console.log('No availability found for doctor');
+        return res.status(200).json({ availableSlots: [] });
+      }
+
+      allDailySlots = availabilitySnapshot.docs[0].data().daySlots;
     }
 
-    const allDailySlots = availabilitySnapshot.docs[0].data().daySlots;
     console.log('All daily slots:', allDailySlots);
 
     const bookedAppointmentsSnapshot = await appointmentsCollection
