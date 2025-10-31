@@ -62,13 +62,17 @@ exports.createOrder = async (req, res) => {
     }
     const doctorId = doctorSnapshot.docs[0].id;
 
-    // Validate slot is offered
-    const availabilitySnapshot = await availabilityCollection
-      .where('doctorId', '==', doctorId)
-      .limit(1)
-      .get();
-    if (availabilitySnapshot.empty || !availabilitySnapshot.docs[0].data().daySlots.includes(time)) {
-      return res.status(400).json({ message: 'This time slot is not offered by the doctor.' });
+    // For online consultations, we don't validate against availability collection
+    // because online slots are generated dynamically based on day of week
+    if (consultType === 'offline') {
+      // Validate slot is offered for offline consultations only
+      const availabilitySnapshot = await availabilityCollection
+        .where('doctorId', '==', doctorId)
+        .limit(1)
+        .get();
+      if (availabilitySnapshot.empty || !availabilitySnapshot.docs[0].data().daySlots.includes(time)) {
+        return res.status(400).json({ message: 'This time slot is not offered by the doctor.' });
+      }
     }
 
     // Create Razorpay order

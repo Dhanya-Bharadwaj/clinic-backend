@@ -67,6 +67,10 @@ router.get('/debug/state', async (req, res) => {
 // URL: GET /api/bookings/slots?date=...
 router.get('/slots', bookingController.getAvailableSlots);
 
+// Check appointments by phone number
+// URL: GET /api/bookings/check-appointments?phone=...
+router.get('/check-appointments', bookingController.checkAppointmentsByPhone);
+
 // This creates a new appointment.
 // URL: POST /api/bookings
 router.post('/', bookingController.bookAppointment);

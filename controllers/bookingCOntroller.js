@@ -370,3 +370,58 @@ exports.getDoctorDetails = async (req, res) => {
     return res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+// --- Check Appointments by Phone Number ---
+exports.checkAppointmentsByPhone = async (req, res) => {
+  try {
+    const { phone } = req.query;
+
+    if (!phone) {
+      return res.status(400).json({ message: 'Phone number is required.' });
+    }
+
+    // Get today's date for filtering upcoming appointments
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayString = format(today, 'yyyy-MM-dd');
+
+    console.log('Checking appointments for phone:', phone);
+    console.log('Today date:', todayString);
+
+    // Query appointments by phone number (include both 'booked' and 'booked_online')
+    const appointmentsSnapshot = await appointmentsCollection
+      .where('patientPhone', '==', phone)
+      .where('status', 'in', ['booked', 'booked_online'])
+      .get();
+
+    if (appointmentsSnapshot.empty) {
+      return res.status(200).json({ appointments: [] });
+    }
+
+    // Filter for upcoming appointments (date >= today) and sort by date
+    const appointments = appointmentsSnapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      .filter(appointment => {
+        // Compare dates as strings (YYYY-MM-DD format)
+        return appointment.date >= todayString;
+      })
+      .sort((a, b) => {
+        // Sort by date, then by time
+        if (a.date !== b.date) {
+          return a.date.localeCompare(b.date);
+        }
+        return a.time.localeCompare(b.time);
+      });
+
+    console.log(`Found ${appointments.length} upcoming appointments`);
+
+    return res.status(200).json({ appointments });
+
+  } catch (error) {
+    console.error('Error checking appointments:', error);
+    return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
