@@ -3,6 +3,7 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const { format, isValid, parseISO } = require('date-fns');
+const { generateWhatsAppNotifications, generateMeetLink } = require('../utils/whatsappNotification');
 
 const db = admin.firestore();
 const doctorsCollection = db.collection('doctors');
@@ -135,6 +136,9 @@ exports.verifyPayment = async (req, res) => {
     const newAppointmentRef = appointmentsCollection.doc();
     const appointmentId = newAppointmentRef.id;
 
+    // Generate meet link for online consultation
+    const meetLink = generateMeetLink(appointmentId);
+
     await db.runTransaction(async (transaction) => {
       const existingAppointmentSnapshot = await transaction.get(
         appointmentsCollection
@@ -160,6 +164,7 @@ exports.verifyPayment = async (req, res) => {
         status: 'booked_online',
         bookingDate: admin.firestore.FieldValue.serverTimestamp(),
         bookingId: appointmentId,
+        meetLink: meetLink, // Store meet link in appointment
         payment: {
           provider: 'razorpay',
           orderId: razorpay_order_id,
@@ -172,6 +177,20 @@ exports.verifyPayment = async (req, res) => {
       });
     });
 
+    // Generate WhatsApp notification URLs
+    const appointmentData = {
+      id: appointmentId,
+      bookingId: appointmentId,
+      date,
+      time,
+      patientName,
+      patientPhone,
+      age: parseInt(age, 10),
+      gender
+    };
+    
+    const { patientNotificationUrl, doctorNotificationUrl } = generateWhatsAppNotifications(appointmentData);
+
     return res.status(200).json({
       message: 'Payment verified and appointment booked successfully!',
       appointment: {
@@ -181,7 +200,12 @@ exports.verifyPayment = async (req, res) => {
         patientName,
         patientPhone,
         bookingId: appointmentId,
+        meetLink: meetLink,
       },
+      whatsappNotifications: {
+        patientUrl: patientNotificationUrl,
+        doctorUrl: doctorNotificationUrl
+      }
     });
   } catch (error) {
     console.error('Payment verification error:', error);
