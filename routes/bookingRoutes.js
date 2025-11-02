@@ -67,6 +67,16 @@ router.get('/debug/state', async (req, res) => {
 // URL: GET /api/bookings/slots?date=...
 router.get('/slots', bookingController.getAvailableSlots);
 
+// Admin: Availability overrides
+// GET override for a date/type
+router.get('/availability/override', bookingController.getAvailabilityOverride);
+// UPSERT override
+router.put('/availability/override', bookingController.upsertAvailabilityOverride);
+// DELETE override
+router.delete('/availability/override', bookingController.deleteAvailabilityOverride);
+// Default slots for a date/type (no overrides, no bookings) - for editor preview
+router.get('/availability/default-slots', bookingController.getDefaultSlotsForDate);
+
 // Check appointments by phone number
 // URL: GET /api/bookings/check-appointments?phone=...
 router.get('/check-appointments', bookingController.checkAppointmentsByPhone);

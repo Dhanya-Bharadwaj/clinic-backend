@@ -97,9 +97,11 @@ app.get('/', (req, res) => {
 const bookingRoutes = require('./routes/bookingRoutes');
 const paymentsRoutes = require('./routes/paymentsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
+const prescriptionRoutes = require('./routes/prescriptionRoutes');
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/prescriptions', prescriptionRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -108,7 +110,19 @@ app.use((err, req, res, next) => {
 });
 
 // For local development, listen on a port. Vercel provides its own server.
-if (process.env.NODE_ENV !== 'production') {
+// Only start server if this file is run directly (not required as a module)
+if (require.main === module) {
+  const server = app.listen(PORT, () => {
+    console.log(`✅ Server running on port ${PORT} for local development`);
+    console.log(`Frontend should access at http://localhost:${PORT}`);
+  });
+  
+  server.on('error', (err) => {
+    console.error('❌ Server error:', err);
+    process.exit(1);
+  });
+} else if (process.env.NODE_ENV !== 'production') {
+  // Fallback for older import patterns
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT} for local development`);
     console.log(`Frontend should access at http://localhost:${PORT}`);

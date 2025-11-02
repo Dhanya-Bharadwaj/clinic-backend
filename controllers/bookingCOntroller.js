@@ -8,6 +8,7 @@ const db = admin.firestore();
 const doctorsCollection = db.collection('doctors');
 const appointmentsCollection = db.collection('appointments');
 const availabilityCollection = db.collection('availability');
+const availabilityOverridesCollection = db.collection('availability_overrides');
 
 // Helper function to normalize date to 'YYYY-MM-DD' string for Firestore
 const normalizeDate = (dateString) => {
@@ -134,8 +135,21 @@ exports.getAvailableSlots = async (req, res) => {
 
     let allDailySlots = [];
 
+    // Check if there is an override for this date and consultType
+    const overrideDocId = `${doctorId}_${normalizedDate}_${consultType || 'offline'}`;
+    const overrideDoc = await availabilityOverridesCollection.doc(overrideDocId).get();
+    if (overrideDoc.exists) {
+      const override = overrideDoc.data();
+      if (override.closed) {
+        return res.status(200).json({ availableSlots: [] });
+      }
+      if (Array.isArray(override.slots)) {
+        allDailySlots = override.slots;
+      }
+    }
+
     // Generate slots based on consultation type
-    if (consultType === 'online') {
+  if (!allDailySlots.length && consultType === 'online') {
       // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
       const dayOfWeek = requestDate.getDay();
       
@@ -157,7 +171,7 @@ exports.getAvailableSlots = async (req, res) => {
         console.log('No online slots for this day');
         return res.status(200).json({ availableSlots: [] });
       }
-    } else {
+  } else if (!allDailySlots.length) {
       // For offline consultations, use the regular availability from database
       const availabilitySnapshot = await availabilityCollection
         .where('doctorId', '==', doctorId)
@@ -422,6 +436,150 @@ exports.checkAppointmentsByPhone = async (req, res) => {
 
   } catch (error) {
     console.error('Error checking appointments:', error);
+    return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// --- Admin: Get availability override for a date ---
+exports.getAvailabilityOverride = async (req, res) => {
+  try {
+    const { date, consultType = 'offline' } = req.query;
+    if (!date) return res.status(400).json({ message: 'date is required (YYYY-MM-DD)' });
+
+    const normalizedDate = normalizeDate(date);
+    const doctorSnapshot = await doctorsCollection.limit(1).get();
+    if (doctorSnapshot.empty) return res.status(404).json({ message: 'Doctor not found.' });
+    const doctorId = doctorSnapshot.docs[0].id;
+
+    const id = `${doctorId}_${normalizedDate}_${consultType}`;
+    const doc = await availabilityOverridesCollection.doc(id).get();
+    if (!doc.exists) return res.json({ override: null });
+    return res.json({ override: { id, ...doc.data() } });
+  } catch (e) {
+    console.error('getAvailabilityOverride error:', e);
+    return res.status(500).json({ message: 'Server error', error: e.message });
+  }
+};
+
+// --- Admin: Upsert availability override ---
+exports.upsertAvailabilityOverride = async (req, res) => {
+  try {
+    const { date, consultType = 'offline', closed = false, slots = [], applyMode = 'once' } = req.body || {};
+    if (!date) return res.status(400).json({ message: 'date is required (YYYY-MM-DD)' });
+    if (!['online', 'offline'].includes(consultType)) return res.status(400).json({ message: 'consultType must be online or offline' });
+
+    const normalizedDate = normalizeDate(date);
+    const doctorSnapshot = await doctorsCollection.limit(1).get();
+    if (doctorSnapshot.empty) return res.status(404).json({ message: 'Doctor not found.' });
+    const doctorId = doctorSnapshot.docs[0].id;
+
+    // If applyMode is 'always', update the permanent default schedule
+    if (applyMode === 'always') {
+      if (consultType === 'offline') {
+        // Update the availability collection (offline default schedule)
+        const availabilitySnapshot = await availabilityCollection
+          .where('doctorId', '==', doctorId)
+          .limit(1)
+          .get();
+        
+        if (!availabilitySnapshot.empty) {
+          const availabilityDoc = availabilitySnapshot.docs[0];
+          await availabilityDoc.ref.update({ daySlots: Array.isArray(slots) ? slots : [] });
+          return res.status(200).json({ 
+            message: 'Default offline schedule updated permanently', 
+            mode: 'always',
+            slots: slots 
+          });
+        } else {
+          // Create new availability doc if it doesn't exist
+          await availabilityCollection.add({
+            doctorId,
+            daySlots: Array.isArray(slots) ? slots : []
+          });
+          return res.status(200).json({ 
+            message: 'Default offline schedule created', 
+            mode: 'always',
+            slots: slots 
+          });
+        }
+      } else {
+        // Online schedules are hardcoded by day-of-week, cannot be permanently changed
+        return res.status(400).json({ 
+          message: 'Online consultation schedules are fixed by day of week and cannot be permanently changed. Use "Just for this date" instead.' 
+        });
+      }
+    }
+
+    // Default behavior: one-time override for specific date
+    const id = `${doctorId}_${normalizedDate}_${consultType}`;
+    const data = { doctorId, date: normalizedDate, consultType, closed: !!closed };
+    if (Array.isArray(slots)) data.slots = slots;
+
+    await availabilityOverridesCollection.doc(id).set(data, { merge: true });
+    return res.status(200).json({ message: 'Override saved for this date', mode: 'once', override: { id, ...data } });
+  } catch (e) {
+    console.error('upsertAvailabilityOverride error:', e);
+    return res.status(500).json({ message: 'Server error', error: e.message });
+  }
+};
+
+// --- Admin: Delete availability override ---
+exports.deleteAvailabilityOverride = async (req, res) => {
+  try {
+    const { date, consultType = 'offline' } = req.query;
+    if (!date) return res.status(400).json({ message: 'date is required (YYYY-MM-DD)' });
+    const normalizedDate = normalizeDate(date);
+    const doctorSnapshot = await doctorsCollection.limit(1).get();
+    if (doctorSnapshot.empty) return res.status(404).json({ message: 'Doctor not found.' });
+    const doctorId = doctorSnapshot.docs[0].id;
+    const id = `${doctorId}_${normalizedDate}_${consultType}`;
+    await availabilityOverridesCollection.doc(id).delete();
+    return res.status(200).json({ message: 'Override deleted', id });
+  } catch (e) {
+    console.error('deleteAvailabilityOverride error:', e);
+    return res.status(500).json({ message: 'Server error', error: e.message });
+  }
+};
+
+// --- Get Default Slots for a Date (no overrides, no bookings) ---
+exports.getDefaultSlotsForDate = async (req, res) => {
+  try {
+    const { date, consultType } = req.query;
+    if (!date) return res.status(400).json({ message: 'Date is required.' });
+
+    const requestDate = new Date(date);
+    const normalizedDate = normalizeDate(date);
+
+    const doctorSnapshot = await doctorsCollection.limit(1).get();
+    if (doctorSnapshot.empty) {
+      return res.status(404).json({ message: 'Doctor not found.' });
+    }
+    const doctorId = doctorSnapshot.docs[0].id;
+
+    let allDailySlots = [];
+
+    if (consultType === 'online') {
+      const dayOfWeek = requestDate.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 1) {
+        allDailySlots = ['10:00', '10:25', '10:50', '11:15', '11:40', '12:05', '12:30'];
+      } else if (dayOfWeek >= 2 && dayOfWeek <= 6) {
+        allDailySlots = ['20:30', '21:00'];
+      } else {
+        allDailySlots = [];
+      }
+    } else {
+      const availabilitySnapshot = await availabilityCollection
+        .where('doctorId', '==', doctorId)
+        .limit(1)
+        .get();
+      if (!availabilitySnapshot.empty) {
+        allDailySlots = availabilitySnapshot.docs[0].data().daySlots || [];
+      }
+    }
+
+    return res.status(200).json({ date: normalizedDate, consultType: consultType || 'offline', slots: allDailySlots });
+  } catch (error) {
+    console.error('Error getDefaultSlotsForDate:', error);
     return res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
