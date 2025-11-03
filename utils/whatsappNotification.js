@@ -14,6 +14,16 @@ const generateMeetLink = (appointmentId) => {
 };
 
 /**
+ * Generate easy video call links: Jitsi (no login, browser-based) and fallback Meet
+ */
+const generateVideoLinks = (appointmentId) => {
+  const safeId = appointmentId.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 20) || 'consult';
+  const jitsi = `https://meet.jit.si/DrMadhusudhan-${safeId}`;
+  const meet = generateMeetLink(appointmentId);
+  return { jitsi, meet };
+};
+
+/**
  * Format date to readable format
  */
 const formatDate = (dateString) => {
@@ -34,50 +44,67 @@ const formatTime = (timeString) => {
 };
 
 /**
- * Send WhatsApp notification to patient
+ * Build WhatsApp message text for patient
  */
-const sendPatientNotification = (appointment, meetLink) => {
-  const { patientName, patientPhone, date, time, bookingId } = appointment;
+const buildPatientMessage = (appointment, videoLinks) => {
+  const { patientName, patientPhone, date, time, bookingId, consultType } = appointment;
   
-  const message = `✅ *Appointment Confirmed*
+  let message = `✅ *Appointment Confirmed*
 
 Hello ${patientName},
 
-Your online consultation with *Dr. K. Madhusudana* has been confirmed!
+Your ${consultType === 'online' ? 'online consultation' : 'clinic appointment'} with *Dr. K. Madhusudana* has been confirmed!
 
 📅 *Date:* ${formatDate(date)}
 🕐 *Time:* ${formatTime(time)}
-🎥 *Meeting Type:* Online Video Consultation
-📋 *Booking ID:* ${bookingId}
+📋 *Booking ID:* ${bookingId}`;
 
-🔗 *Google Meet Link:*
-${meetLink}
+  if (consultType === 'online') {
+    message += `
+🎥 *Meeting Type:* Online Video Consultation
+
+🔗 *Join via Jitsi (no login required):*
+${videoLinks?.jitsi}
+
+🔗 *Join via Google Meet (alternate):*
+${videoLinks?.meet}
 
 *Instructions:*
 - Please join the meeting 5 minutes before the scheduled time
 - Make sure you have a stable internet connection
-- Keep your medical reports ready if any
+- Keep your medical reports ready if any`;
+  } else {
+    message += `
+🏥 *Consultation Type:* In-Clinic Visit
+
+📍 *Clinic Address:*
+Dr. K. Madhusudana Clinic
+SPARSH Hospital Road
+Near Anand Nursing Home
+Marathahalli, Bangalore - 560037
+
+*Instructions:*
+- Please arrive 10 minutes before your appointment time
+- Bring any previous medical reports if available`;
+  }
+
+  message += `
 
 For any queries, please contact us.
 
 Thank you!
 *Dr. K. Madhusudana Clinic*`;
 
-  // URL encode the message
-  const encodedMessage = encodeURIComponent(message);
-  const whatsappUrl = `https://wa.me/${patientPhone}?text=${encodedMessage}`;
-  
-  console.log('Patient WhatsApp notification link generated:', whatsappUrl);
-  return whatsappUrl;
+  return { message, patientPhone };
 };
 
 /**
- * Send WhatsApp notification to doctor
+ * Build WhatsApp message text for doctor
  */
-const sendDoctorNotification = (appointment, meetLink) => {
-  const { patientName, patientPhone, date, time, bookingId, age, gender } = appointment;
+const buildDoctorMessage = (appointment, videoLinks) => {
+  const { patientName, patientPhone, date, time, bookingId, age, gender, consultType } = appointment;
   
-  const message = `🔔 *New Online Appointment*
+  let message = `🔔 *New ${consultType === 'online' ? 'Online' : 'In-Clinic'} Appointment*
 
 *Patient Details:*
 👤 Name: ${patientName}
@@ -87,19 +114,27 @@ const sendDoctorNotification = (appointment, meetLink) => {
 
 📅 *Date:* ${formatDate(date)}
 🕐 *Time:* ${formatTime(time)}
-📋 *Booking ID:* ${bookingId}
+📋 *Booking ID:* ${bookingId}`;
 
-🔗 *Google Meet Link:*
-${meetLink}
+  if (consultType === 'online') {
+    message += `
+
+🔗 *Jitsi Link (no login):*
+${videoLinks?.jitsi}
+
+🔗 *Google Meet Link (alt):*
+${videoLinks?.meet}
 
 *Note:* Patient has been notified with the meeting link.`;
+  } else {
+    message += `
 
-  // URL encode the message
-  const encodedMessage = encodeURIComponent(message);
-  const whatsappUrl = `https://wa.me/${DOCTOR_PHONE}?text=${encodedMessage}`;
-  
-  console.log('Doctor WhatsApp notification link generated:', whatsappUrl);
-  return whatsappUrl;
+🏥 *Consultation Type:* In-Clinic Visit
+
+*Note:* Patient has been notified about the clinic visit.`;
+  }
+
+  return { message };
 };
 
 /**
@@ -107,16 +142,35 @@ ${meetLink}
  * Returns an object with patient and doctor notification URLs
  */
 const generateWhatsAppNotifications = (appointment) => {
-  const meetLink = generateMeetLink(appointment.bookingId || appointment.id);
+  const { consultType } = appointment;
   
-  return {
-    meetLink,
-    patientNotificationUrl: sendPatientNotification(appointment, meetLink),
-    doctorNotificationUrl: sendDoctorNotification(appointment, meetLink)
-  };
+  // Generate video links only for online consultations
+  const links = consultType === 'online' 
+    ? generateVideoLinks(appointment.bookingId || appointment.id)
+    : { jitsi: null, meet: null };
+  
+  // Build messages
+  const { message: patientMessage, patientPhone } = buildPatientMessage(appointment, links);
+  const { message: doctorMessage } = buildDoctorMessage(appointment, links);
+
+  // Encode and build wa.me links (fallback/manual sharing)
+  const encodedPatient = encodeURIComponent(patientMessage);
+  const phoneWithCode = patientPhone.startsWith('91') ? patientPhone : `91${patientPhone}`;
+  const patientNotificationUrl = `https://wa.me/${phoneWithCode}?text=${encodedPatient}`;
+
+  const encodedDoctor = encodeURIComponent(doctorMessage);
+  const doctorNotificationUrl = `https://wa.me/${DOCTOR_PHONE}?text=${encodedDoctor}`;
+
+  console.log('Patient WhatsApp notification link generated:', patientNotificationUrl);
+  console.log('Doctor WhatsApp notification link generated:', doctorNotificationUrl);
+
+  return { meetLink: links.meet, jitsiLink: links.jitsi, patientNotificationUrl, doctorNotificationUrl, patientMessage, doctorMessage };
 };
 
 module.exports = {
   generateWhatsAppNotifications,
-  generateMeetLink
+  generateMeetLink,
+  generateVideoLinks,
+  buildPatientMessage,
+  buildDoctorMessage
 };

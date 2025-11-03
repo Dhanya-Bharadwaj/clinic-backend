@@ -3,7 +3,8 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const { format, isValid, parseISO } = require('date-fns');
-const { generateWhatsAppNotifications, generateMeetLink } = require('../utils/whatsappNotification');
+const { generateWhatsAppNotifications, generateVideoLinks } = require('../utils/whatsappNotification');
+const fetch = require('node-fetch');
 
 const db = admin.firestore();
 const doctorsCollection = db.collection('doctors');
@@ -136,8 +137,8 @@ exports.verifyPayment = async (req, res) => {
     const newAppointmentRef = appointmentsCollection.doc();
     const appointmentId = newAppointmentRef.id;
 
-    // Generate meet link for online consultation
-    const meetLink = generateMeetLink(appointmentId);
+  // Generate video links for online consultation
+  const { jitsi: jitsiLink, meet: meetLink } = generateVideoLinks(appointmentId);
 
     await db.runTransaction(async (transaction) => {
       const existingAppointmentSnapshot = await transaction.get(
@@ -164,7 +165,8 @@ exports.verifyPayment = async (req, res) => {
         status: 'booked_online',
         bookingDate: admin.firestore.FieldValue.serverTimestamp(),
         bookingId: appointmentId,
-        meetLink: meetLink, // Store meet link in appointment
+  meetLink: meetLink, // Store meet link in appointment
+  jitsiLink: jitsiLink,
         payment: {
           provider: 'razorpay',
           orderId: razorpay_order_id,
@@ -186,10 +188,60 @@ exports.verifyPayment = async (req, res) => {
       patientName,
       patientPhone,
       age: parseInt(age, 10),
-      gender
+      gender,
+      jitsiLink,
+      meetLink
     };
     
-    const { patientNotificationUrl, doctorNotificationUrl } = generateWhatsAppNotifications(appointmentData);
+    const { patientNotificationUrl, doctorNotificationUrl, patientMessage, doctorMessage } = generateWhatsAppNotifications(appointmentData);
+
+    // Attempt automatic WhatsApp send via Cloud API if configured
+  const WA_TOKEN = process.env.WHATSAPP_CLOUD_API_TOKEN;
+  const WA_PHONE_ID = process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;
+    const WA_API_URL = WA_PHONE_ID ? `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages` : null;
+    const patientPhoneWithCode = appointmentData.patientPhone.startsWith('91') ? appointmentData.patientPhone : `91${appointmentData.patientPhone}`;
+
+    const autoSendResults = { patientSent: false, doctorSent: false };
+    if (WA_TOKEN && WA_API_URL) {
+      console.log('Attempting WhatsApp auto-send via Cloud API (payments.verify)...');
+      try {
+        // Send to patient
+        const pResp = await fetch(WA_API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${WA_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: patientPhoneWithCode,
+            type: 'text',
+            text: { body: patientMessage }
+          })
+        });
+        autoSendResults.patientSent = pResp.ok;
+
+        // Send to doctor
+        const dResp = await fetch(WA_API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${WA_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: `91${'8762624188'}`,
+            type: 'text',
+            text: { body: doctorMessage }
+          })
+        });
+        autoSendResults.doctorSent = dResp.ok;
+      } catch (waErr) {
+        console.error('WhatsApp auto-send failed (payments.verify):', waErr.message);
+      }
+    } else {
+      console.log('WhatsApp auto-send not configured (payments.verify): Missing WHATSAPP_CLOUD_API_TOKEN or WHATSAPP_CLOUD_PHONE_NUMBER_ID');
+    }
 
     return res.status(200).json({
       message: 'Payment verified and appointment booked successfully!',
@@ -201,10 +253,12 @@ exports.verifyPayment = async (req, res) => {
         patientPhone,
         bookingId: appointmentId,
         meetLink: meetLink,
+        jitsiLink: jitsiLink,
       },
       whatsappNotifications: {
         patientUrl: patientNotificationUrl,
-        doctorUrl: doctorNotificationUrl
+        doctorUrl: doctorNotificationUrl,
+        autoSend: autoSendResults
       }
     });
   } catch (error) {

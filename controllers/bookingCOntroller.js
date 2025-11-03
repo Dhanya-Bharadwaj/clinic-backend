@@ -1,6 +1,8 @@
 // doctor-madhusudhan-backend/controllers/bookingController.js
 const admin = require('firebase-admin');
 const { format, isValid, parseISO } = require('date-fns');
+const { generateWhatsAppNotifications, generateVideoLinks } = require('../utils/whatsappNotification');
+const fetch = require('node-fetch');
 
 const db = admin.firestore();
 
@@ -276,6 +278,15 @@ exports.bookAppointment = async (req, res) => {
     const newAppointmentRef = appointmentsCollection.doc(); // Get a reference for the new doc
     const appointmentId = newAppointmentRef.id;
 
+    // Generate video links for online consultations
+    let meetLink = null;
+    let jitsiLink = null;
+    if (consultType === 'online') {
+      const links = generateVideoLinks(appointmentId);
+      meetLink = links.meet;
+      jitsiLink = links.jitsi;
+    }
+
     await db.runTransaction(async (transaction) => {
       // Check for existing booking within the transaction
       const existingAppointmentSnapshot = await transaction.get(
@@ -290,7 +301,7 @@ exports.bookAppointment = async (req, res) => {
         throw new Error('This slot is already booked. Please choose another time.');
       }
 
-      transaction.set(newAppointmentRef, {
+      const appointmentData = {
         doctorId,
         patientName,
         patientPhone,
@@ -301,23 +312,90 @@ exports.bookAppointment = async (req, res) => {
         time,
         status: 'booked',
         bookingDate: admin.firestore.FieldValue.serverTimestamp(),
-        bookingId: appointmentId // Use Firestore doc ID as booking ID
-      });
+        bookingId: appointmentId
+      };
+
+      // Add meetLink only for online consultations
+      if (meetLink) appointmentData.meetLink = meetLink;
+      if (jitsiLink) appointmentData.jitsiLink = jitsiLink;
+
+      transaction.set(newAppointmentRef, appointmentData);
     });
+
+    // Prepare appointment object for response
+    const appointment = {
+      id: appointmentId,
+      date: normalizedDate,
+      time,
+      patientName,
+      patientPhone,
+      age: parseInt(age),
+      gender,
+      consultType,
+      bookingId: appointmentId,
+  ...(meetLink && { meetLink }),
+  ...(jitsiLink && { jitsiLink })
+    };
+
+    // Generate WhatsApp notification data
+    const whatsappData = generateWhatsAppNotifications(appointment);
+
+    // Attempt automatic WhatsApp send via Cloud API if configured (for online and offline bookings made without payment)
+    const WA_TOKEN = process.env.WHATSAPP_CLOUD_API_TOKEN;
+    const WA_PHONE_ID = process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;
+    const WA_API_URL = WA_PHONE_ID ? `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages` : null;
+    const patientPhoneWithCode = appointment.patientPhone.startsWith('91') ? appointment.patientPhone : `91${appointment.patientPhone}`;
+
+    const autoSendResults = { patientSent: false, doctorSent: false };
+    if (WA_TOKEN && WA_API_URL) {
+      console.log('Attempting WhatsApp auto-send via Cloud API (bookAppointment)...');
+      try {
+        // Send to patient
+        const pResp = await fetch(WA_API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${WA_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: patientPhoneWithCode,
+            type: 'text',
+            text: { body: whatsappData.patientMessage }
+          })
+        });
+        autoSendResults.patientSent = pResp.ok;
+
+        // Send to doctor
+        const dResp = await fetch(WA_API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${WA_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: `91${'8762624188'}`,
+            type: 'text',
+            text: { body: whatsappData.doctorMessage }
+          })
+        });
+        autoSendResults.doctorSent = dResp.ok;
+      } catch (waErr) {
+        console.error('WhatsApp auto-send failed (bookAppointment):', waErr.message);
+      }
+    } else {
+      console.log('WhatsApp auto-send not configured (bookAppointment): Missing WHATSAPP_CLOUD_API_TOKEN or WHATSAPP_CLOUD_PHONE_NUMBER_ID');
+    }
 
     return res.status(201).json({
       message: 'Appointment booked successfully!',
-      appointment: {
-          id: appointmentId,
-          date: normalizedDate,
-          time,
-          patientName,
-          patientPhone,
-          age: parseInt(age),
-          gender,
-          consultType,
-          bookingId: appointmentId
-      },
+      appointment,
+      whatsappNotifications: {
+        patientUrl: whatsappData.patientNotificationUrl,
+        doctorUrl: whatsappData.doctorNotificationUrl,
+        autoSend: autoSendResults
+      }
     });
 
   } catch (error) {
