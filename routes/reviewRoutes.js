@@ -7,26 +7,48 @@ const admin = require('firebase-admin');
 const router = express.Router();
 
 // Get all reviews with rating >= 3.5
+// Get all reviews (admin: all, public: rating >= 3.5)
 router.get('/', async (req, res) => {
   try {
     const db = admin.firestore();
     const reviewsRef = db.collection('reviews');
+    let snapshot;
     
-    // Query reviews with rating >= 3.5, ordered by date descending
-    const snapshot = await reviewsRef
-      .where('rating', '>=', 3.5)
-      .orderBy('rating', 'desc')
-      .orderBy('createdAt', 'desc')
-      .get();
-
-    const reviews = [];
+    if (req.query.all === 'true') {
+      // Admin: fetch all reviews (no rating filter)
+      snapshot = await reviewsRef.get();
+    } else {
+      // Public: fetch all reviews and filter in memory to avoid index requirement
+      snapshot = await reviewsRef.get();
+    }
+    
+    let reviews = [];
     snapshot.forEach((doc) => {
-      reviews.push({
-        id: doc.id,
-        ...doc.data()
-      });
+      const data = doc.data();
+      // For public, only include reviews with rating > 3
+      if (req.query.all === 'true' || data.rating > 3) {
+        reviews.push({ id: doc.id, ...data });
+      }
     });
-
+    
+    // Sort reviews by rating (desc) then createdAt (desc)
+    reviews.sort((a, b) => {
+      const getTs = (r) => {
+        const c = r.createdAt;
+        if (!c) return 0;
+        if (typeof c.toMillis === 'function') return c.toMillis();
+        if (typeof c.seconds === 'number') return c.seconds * 1000 + (c.nanoseconds || 0) / 1e6;
+        const d = new Date(c);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      };
+      // Sort by rating first (descending)
+      if (b.rating !== a.rating) {
+        return b.rating - a.rating;
+      }
+      // Then by timestamp (descending)
+      return getTs(b) - getTs(a);
+    });
+    
     res.json({ reviews });
   } catch (error) {
     console.error('Error fetching reviews:', error);
@@ -55,14 +77,6 @@ router.post('/', [
 
     const { name, review, rating } = req.body;
 
-    // Only save reviews with rating >= 3.5
-    if (rating < 3.5) {
-      return res.status(200).json({
-        message: 'Thank you for your feedback. We will work to improve our services.',
-        saved: false
-      });
-    }
-
     const db = admin.firestore();
     const reviewsRef = db.collection('reviews');
 
@@ -72,15 +86,22 @@ router.post('/', [
       rating: parseFloat(rating),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       approved: true, // Auto-approve for now
-      ipAddress: req.ip || req.connection.remoteAddress
+      ipAddress: req.ip || req.connection.remoteAddress,
+      displayOnPublic: rating > 3 // Flag to control public display (4 and 5 stars)
     };
 
     const docRef = await reviewsRef.add(reviewData);
 
+    // Determine response message based on rating
+    const responseMessage = rating > 3 
+      ? 'Review submitted successfully'
+      : 'Thank you for your feedback. We will work to improve our services.';
+
     res.status(201).json({
-      message: 'Review submitted successfully',
+      message: responseMessage,
       reviewId: docRef.id,
-      saved: true
+      saved: true, // Always true - we're saving all reviews now
+      displayOnPublic: rating > 3 // Let frontend know if it will show publicly (4 and 5 stars)
     });
 
   } catch (error) {
