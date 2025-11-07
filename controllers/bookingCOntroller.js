@@ -1,10 +1,14 @@
-// doctor-madhusudhan-backend/controllers/bookingController.js
+// doctor-madhusudhan-backend/bookingController.js
 const admin = require('firebase-admin');
 const { format, isValid, parseISO } = require('date-fns');
 const { generateWhatsAppNotifications, generateVideoLinks } = require('../utils/whatsappNotification');
+const { sendAppointmentNotifications } = require('../utils/autoWhatsappSender');
 const fetch = require('node-fetch');
 
 const db = admin.firestore();
+
+// --- Constants ---
+const DOCTOR_PHONE = '8762624188'; // Doctor's WhatsApp number
 
 // --- Firebase Collections ---
 const doctorsCollection = db.collection('doctors');
@@ -155,7 +159,7 @@ exports.getAvailableSlots = async (req, res) => {
       // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
       const dayOfWeek = requestDate.getDay();
       
-      console.log('Online consultation requested for day:', dayOfWeek);
+      console.log('Video call consultation requested for day:', dayOfWeek);
       
       if (dayOfWeek === 0 || dayOfWeek === 1) {
         // Sunday (0) or Monday (1): 10:00 AM - 1:00 PM with 15-min slots and 10-min breaks
@@ -164,17 +168,29 @@ exports.getAvailableSlots = async (req, res) => {
         allDailySlots = [
           '10:00', '10:25', '10:50', '11:15', '11:40', '12:05', '12:30'
         ];
-        console.log('Sunday/Monday online slots generated:', allDailySlots);
+        console.log('Sunday/Monday video call slots generated:', allDailySlots);
       } else if (dayOfWeek >= 2 && dayOfWeek <= 6) {
         // Tuesday (2) to Saturday (6): Only 2 evening slots
         allDailySlots = ['20:30', '21:00'];
-        console.log('Tuesday-Saturday online slots generated:', allDailySlots);
+        console.log('Tuesday-Saturday video call slots generated:', allDailySlots);
       } else {
-        console.log('No online slots for this day');
+        console.log('No video call slots for this day');
         return res.status(200).json({ availableSlots: [] });
       }
   } else if (!allDailySlots.length) {
-      // For offline consultations, use the regular availability from database
+      // For in-clinic consultations, check if it's Sunday or Monday (clinic closed)
+      const dayOfWeek = requestDate.getDay();
+      
+      if (dayOfWeek === 0 || dayOfWeek === 1) {
+        // Sunday or Monday - Clinic is CLOSED for in-person visits
+        console.log('Clinic closed on Sunday/Monday for in-clinic consultations');
+        return res.status(200).json({ 
+          availableSlots: [],
+          message: 'Clinic is closed on Sunday and Monday. Please book a video call consultation instead.'
+        });
+      }
+      
+      // For Tuesday-Saturday, use the regular availability from database
       const availabilitySnapshot = await availabilityCollection
         .where('doctorId', '==', doctorId)
         .limit(1)
@@ -333,68 +349,48 @@ exports.bookAppointment = async (req, res) => {
       gender,
       consultType,
       bookingId: appointmentId,
-  ...(meetLink && { meetLink }),
-  ...(jitsiLink && { jitsiLink })
+      ...(meetLink && { meetLink }),
+      ...(jitsiLink && { jitsiLink })
     };
 
     // Generate WhatsApp notification data
     const whatsappData = generateWhatsAppNotifications(appointment);
 
-    // Attempt automatic WhatsApp send via Cloud API if configured (for online and offline bookings made without payment)
-    const WA_TOKEN = process.env.WHATSAPP_CLOUD_API_TOKEN;
-    const WA_PHONE_ID = process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;
-    const WA_API_URL = WA_PHONE_ID ? `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages` : null;
-    const patientPhoneWithCode = appointment.patientPhone.startsWith('91') ? appointment.patientPhone : `91${appointment.patientPhone}`;
+    // 🤖 AUTOMATIC WhatsApp Notifications - BOT MODE!
+    // This tries multiple methods automatically: Twilio > Cloud API > CallMeBot
+    const patientPhoneNormalized = appointment.patientPhone.startsWith('91') 
+      ? appointment.patientPhone 
+      : `91${appointment.patientPhone}`;
+    
+    const doctorPhoneNormalized = `91${DOCTOR_PHONE}`;
 
-    const autoSendResults = { patientSent: false, doctorSent: false };
-    if (WA_TOKEN && WA_API_URL) {
-      console.log('Attempting WhatsApp auto-send via Cloud API (bookAppointment)...');
-      try {
-        // Send to patient
-        const pResp = await fetch(WA_API_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WA_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: patientPhoneWithCode,
-            type: 'text',
-            text: { body: whatsappData.patientMessage }
-          })
-        });
-        autoSendResults.patientSent = pResp.ok;
+    const autoSendResults = await sendAppointmentNotifications(
+      patientPhoneNormalized,
+      whatsappData.patientMessage,
+      doctorPhoneNormalized,
+      whatsappData.doctorMessage
+    );
 
-        // Send to doctor
-        const dResp = await fetch(WA_API_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WA_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: `91${'8762624188'}`,
-            type: 'text',
-            text: { body: whatsappData.doctorMessage }
-          })
-        });
-        autoSendResults.doctorSent = dResp.ok;
-      } catch (waErr) {
-        console.error('WhatsApp auto-send failed (bookAppointment):', waErr.message);
-      }
-    } else {
-      console.log('WhatsApp auto-send not configured (bookAppointment): Missing WHATSAPP_CLOUD_API_TOKEN or WHATSAPP_CLOUD_PHONE_NUMBER_ID');
-    }
-
+    // Return response with automatic send status AND fallback manual links
     return res.status(201).json({
       message: 'Appointment booked successfully!',
       appointment,
       whatsappNotifications: {
-        patientUrl: whatsappData.patientNotificationUrl,
-        doctorUrl: whatsappData.doctorNotificationUrl,
-        autoSend: autoSendResults
+        // Automatic send results
+        patient: {
+          sent: autoSendResults.patient.success,
+          method: autoSendResults.patient.method,
+          messageId: autoSendResults.patient.messageId,
+          fallbackUrl: autoSendResults.patient.manualLink || whatsappData.patientNotificationUrl
+        },
+        doctor: {
+          sent: autoSendResults.doctor.success,
+          method: autoSendResults.doctor.method,
+          messageId: autoSendResults.doctor.messageId,
+          fallbackUrl: autoSendResults.doctor.manualLink || whatsappData.doctorNotificationUrl
+        },
+        autoSendAttempted: true,
+        bothSent: autoSendResults.patient.success && autoSendResults.doctor.success
       }
     });
 

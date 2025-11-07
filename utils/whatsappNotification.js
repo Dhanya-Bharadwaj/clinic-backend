@@ -53,7 +53,7 @@ const buildPatientMessage = (appointment, videoLinks) => {
 
 Hello ${patientName},
 
-Your ${consultType === 'online' ? 'online consultation' : 'clinic appointment'} with *Dr. K. Madhusudana* has been confirmed!
+Your ${consultType === 'online' ? 'video call consultation' : 'in-clinic appointment'} with *Dr. K. Madhusudana* has been confirmed!
 
 📅 *Date:* ${formatDate(date)}
 🕐 *Time:* ${formatTime(time)}
@@ -61,7 +61,7 @@ Your ${consultType === 'online' ? 'online consultation' : 'clinic appointment'} 
 
   if (consultType === 'online') {
     message += `
-🎥 *Meeting Type:* Online Video Consultation
+🎥 *Meeting Type:* Video Call Consultation
 
 🔗 *Join via Jitsi (no login required):*
 ${videoLinks?.jitsi}
@@ -85,7 +85,8 @@ Marathahalli, Bangalore - 560037
 
 *Instructions:*
 - Please arrive 10 minutes before your appointment time
-- Bring any previous medical reports if available`;
+- Bring any previous medical reports if available
+- Note: Clinic is closed on Sunday & Monday`;
   }
 
   message += `
@@ -104,7 +105,7 @@ Thank you!
 const buildDoctorMessage = (appointment, videoLinks) => {
   const { patientName, patientPhone, date, time, bookingId, age, gender, consultType } = appointment;
   
-  let message = `🔔 *New ${consultType === 'online' ? 'Online' : 'In-Clinic'} Appointment*
+  let message = `🔔 *New ${consultType === 'online' ? 'Video Call' : 'In-Clinic'} Appointment*
 
 *Patient Details:*
 👤 Name: ${patientName}
