@@ -195,53 +195,16 @@ exports.verifyPayment = async (req, res) => {
     
     const { patientNotificationUrl, doctorNotificationUrl, patientMessage, doctorMessage } = generateWhatsAppNotifications(appointmentData);
 
-    // Attempt automatic WhatsApp send via Cloud API if configured
-  const WA_TOKEN = process.env.WHATSAPP_CLOUD_API_TOKEN;
-  const WA_PHONE_ID = process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;
-    const WA_API_URL = WA_PHONE_ID ? `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages` : null;
+    // Use the unified automatic sender helper (prioritizes CallMeBot -> Cloud API -> Twilio)
     const patientPhoneWithCode = appointmentData.patientPhone.startsWith('91') ? appointmentData.patientPhone : `91${appointmentData.patientPhone}`;
+    const doctorPhoneWithCode = `91${'8762624188'}`;
 
-    const autoSendResults = { patientSent: false, doctorSent: false };
-    if (WA_TOKEN && WA_API_URL) {
-      console.log('Attempting WhatsApp auto-send via Cloud API (payments.verify)...');
-      try {
-        // Send to patient
-        const pResp = await fetch(WA_API_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WA_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: patientPhoneWithCode,
-            type: 'text',
-            text: { body: patientMessage }
-          })
-        });
-        autoSendResults.patientSent = pResp.ok;
-
-        // Send to doctor
-        const dResp = await fetch(WA_API_URL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WA_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: `91${'8762624188'}`,
-            type: 'text',
-            text: { body: doctorMessage }
-          })
-        });
-        autoSendResults.doctorSent = dResp.ok;
-      } catch (waErr) {
-        console.error('WhatsApp auto-send failed (payments.verify):', waErr.message);
-      }
-    } else {
-      console.log('WhatsApp auto-send not configured (payments.verify): Missing WHATSAPP_CLOUD_API_TOKEN or WHATSAPP_CLOUD_PHONE_NUMBER_ID');
-    }
+    const autoSendResults = await require('../utils/autoWhatsappSender').sendAppointmentNotifications(
+      patientPhoneWithCode,
+      patientMessage,
+      doctorPhoneWithCode,
+      doctorMessage
+    );
 
     return res.status(200).json({
       message: 'Payment verified and appointment booked successfully!',

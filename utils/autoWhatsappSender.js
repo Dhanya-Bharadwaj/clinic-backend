@@ -13,7 +13,10 @@ const fetch = require('node-fetch');
 async function sendViaTwilio(to, message) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER; // Format: whatsapp:+14155238886
+  // BOT number (default fallback) - will be used if TWILIO_WHATSAPP_NUMBER is not configured.
+  // User requested bot number: +91 84316 09250
+  const DEFAULT_BOT_NUMBER = 'whatsapp:+918431609250';
+  const fromWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER || DEFAULT_BOT_NUMBER; // Format: whatsapp:+14155238886
 
   if (!accountSid || !authToken || !fromWhatsApp) {
     console.log('Twilio not configured');
@@ -127,10 +130,11 @@ async function sendWhatsAppMessage(to, message, recipientType = 'patient') {
   console.log('━'.repeat(60));
 
   // Try methods in priority order
+  // Prioritize free option (CallMeBot) first, then Cloud API, then Twilio
   const methods = [
-    { name: 'Twilio', fn: sendViaTwilio },
+    { name: 'CallMeBot', fn: sendViaCallMeBot },
     { name: 'Cloud API', fn: sendViaCloudAPI },
-    { name: 'CallMeBot', fn: sendViaCallMeBot }
+    { name: 'Twilio', fn: sendViaTwilio }
   ];
 
   for (const method of methods) {

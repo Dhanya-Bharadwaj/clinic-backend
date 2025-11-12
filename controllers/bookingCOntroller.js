@@ -2,7 +2,7 @@
 const admin = require('firebase-admin');
 const { format, isValid, parseISO } = require('date-fns');
 const { generateWhatsAppNotifications, generateVideoLinks } = require('../utils/whatsappNotification');
-const { sendAppointmentNotifications } = require('../utils/autoWhatsappSender');
+const { sendAppointmentNotifications, sendWhatsAppMessage } = require('../utils/autoWhatsappSender');
 const fetch = require('node-fetch');
 
 const db = admin.firestore();
@@ -357,42 +357,69 @@ exports.bookAppointment = async (req, res) => {
     const whatsappData = generateWhatsAppNotifications(appointment);
 
     // 🤖 AUTOMATIC WhatsApp Notifications - BOT MODE!
-    // This tries multiple methods automatically: Twilio > Cloud API > CallMeBot
-    const patientPhoneNormalized = appointment.patientPhone.startsWith('91') 
-      ? appointment.patientPhone 
+    // For online consultations: notify both patient and doctor
+    // For offline (in-clinic) consultations: notify only the patient
+    const patientPhoneNormalized = appointment.patientPhone.startsWith('91')
+      ? appointment.patientPhone
       : `91${appointment.patientPhone}`;
-    
-    const doctorPhoneNormalized = `91${DOCTOR_PHONE}`;
 
-    const autoSendResults = await sendAppointmentNotifications(
-      patientPhoneNormalized,
-      whatsappData.patientMessage,
-      doctorPhoneNormalized,
-      whatsappData.doctorMessage
-    );
+    if (consultType === 'online') {
+      const doctorPhoneNormalized = `91${DOCTOR_PHONE}`;
 
-    // Return response with automatic send status AND fallback manual links
-    return res.status(201).json({
-      message: 'Appointment booked successfully!',
-      appointment,
-      whatsappNotifications: {
-        // Automatic send results
-        patient: {
-          sent: autoSendResults.patient.success,
-          method: autoSendResults.patient.method,
-          messageId: autoSendResults.patient.messageId,
-          fallbackUrl: autoSendResults.patient.manualLink || whatsappData.patientNotificationUrl
-        },
-        doctor: {
-          sent: autoSendResults.doctor.success,
-          method: autoSendResults.doctor.method,
-          messageId: autoSendResults.doctor.messageId,
-          fallbackUrl: autoSendResults.doctor.manualLink || whatsappData.doctorNotificationUrl
-        },
-        autoSendAttempted: true,
-        bothSent: autoSendResults.patient.success && autoSendResults.doctor.success
-      }
-    });
+      const autoSendResults = await sendAppointmentNotifications(
+        patientPhoneNormalized,
+        whatsappData.patientMessage,
+        doctorPhoneNormalized,
+        whatsappData.doctorMessage
+      );
+
+      // Return response with automatic send status AND fallback manual links
+      return res.status(201).json({
+        message: 'Appointment booked successfully!',
+        appointment,
+        whatsappNotifications: {
+          // Automatic send results
+          patient: {
+            sent: autoSendResults.patient.success,
+            method: autoSendResults.patient.method,
+            messageId: autoSendResults.patient.messageId,
+            fallbackUrl: autoSendResults.patient.manualLink || whatsappData.patientNotificationUrl
+          },
+          doctor: {
+            sent: autoSendResults.doctor.success,
+            method: autoSendResults.doctor.method,
+            messageId: autoSendResults.doctor.messageId,
+            fallbackUrl: autoSendResults.doctor.manualLink || whatsappData.doctorNotificationUrl
+          },
+          autoSendAttempted: true,
+          bothSent: autoSendResults.patient.success && autoSendResults.doctor.success
+        }
+      });
+    } else {
+      // Offline appointment: only notify the patient automatically
+      const patientResult = await sendWhatsAppMessage(patientPhoneNormalized, whatsappData.patientMessage, 'PATIENT');
+
+      return res.status(201).json({
+        message: 'Appointment booked successfully!',
+        appointment,
+        whatsappNotifications: {
+          patient: {
+            sent: patientResult.success,
+            method: patientResult.method,
+            messageId: patientResult.messageId,
+            fallbackUrl: patientResult.manualLink || whatsappData.patientNotificationUrl
+          },
+          doctor: {
+            sent: false,
+            method: 'skipped',
+            messageId: null,
+            fallbackUrl: null
+          },
+          autoSendAttempted: true,
+          bothSent: false
+        }
+      });
+    }
 
   } catch (error) {
     console.error('Error booking appointment:', error);

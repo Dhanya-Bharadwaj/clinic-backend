@@ -160,7 +160,9 @@ const generateWhatsAppNotifications = (appointment) => {
   const patientNotificationUrl = `https://wa.me/${phoneWithCode}?text=${encodedPatient}`;
 
   const encodedDoctor = encodeURIComponent(doctorMessage);
-  const doctorNotificationUrl = `https://wa.me/${DOCTOR_PHONE}?text=${encodedDoctor}`;
+  // Ensure doctor's phone includes country code (India +91) for wa.me links
+  const doctorPhoneWithCode = DOCTOR_PHONE.startsWith('91') ? DOCTOR_PHONE : `91${DOCTOR_PHONE}`;
+  const doctorNotificationUrl = `https://wa.me/${doctorPhoneWithCode}?text=${encodedDoctor}`;
 
   console.log('Patient WhatsApp notification link generated:', patientNotificationUrl);
   console.log('Doctor WhatsApp notification link generated:', doctorNotificationUrl);
